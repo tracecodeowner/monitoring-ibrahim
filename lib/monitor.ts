@@ -61,6 +61,12 @@ function isEnabled(key: string) {
 function parseSources() {
   const sources: MonitorSource[] = [];
 
+  // 1. Primary Source: X Syndication
+  if (isEnabled("MONITOR_ENABLE_X_SYNDICATION")) {
+    sources.push(new XSyndicationSource());
+  }
+
+  // 2. Fallback Source: RSS / Google Search RSS
   if (isEnabled("MONITOR_ENABLE_RSS")) {
     const configured = (process.env.MONITOR_FEED_URLS || "").trim();
     if (configured) {
@@ -74,12 +80,13 @@ function parseSources() {
           new URL(url);
           sources.push(new RSSMonitorSource(url));
         } catch {
-          // Ignore invalid URLs while keeping monitoring configuration-safe.
+          // Ignore invalid URLs
         }
       }
     }
   }
 
+  // 3. Fallback Source: RSS Bridge
   if (isEnabled("MONITOR_ENABLE_RSSBRIDGE")) {
     const configured = (process.env.RSSBRIDGE_FEED_URLS || "").trim();
     if (configured) {
@@ -93,12 +100,13 @@ function parseSources() {
           new URL(url);
           sources.push(new RSSBridgeSource(url));
         } catch {
-          // Ignore invalid RSS Bridge URLs while keeping the monitor safe.
+          // Ignore invalid RSS Bridge URLs
         }
       }
     }
   }
 
+  // 4. Deprecated Source: Zamantika (jika suatu saat dinyalakan lagi)
   if (isEnabled("MONITOR_ENABLE_ZAMANTIKA")) {
     const zamantikaUrl = (process.env.ZAMANTIKA_PROFILE_API_URL || "https://zamantika.com/api/twitter/profile/ibamarief").trim();
     if (zamantikaUrl) {
@@ -109,10 +117,6 @@ function parseSources() {
         // Ignore invalid Zamantika URL
       }
     }
-  }
-
-  if (isEnabled("MONITOR_ENABLE_X_SYNDICATION")) {
-    sources.push(new XSyndicationSource());
   }
 
   return sources;
