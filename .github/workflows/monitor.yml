@@ -1,0 +1,24 @@
+name: Monitor public feed
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call monitor endpoint
+        env:
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$MONITOR_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "MONITOR_URL and CRON_SECRET GitHub secrets must be configured."
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$MONITOR_URL"
