@@ -258,9 +258,10 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
 
       const scored = scorePost(post.text);
 
-      // OPTIMASI DATABASE: Abaikan post yang tidak ada keyword/skornya 0 (Severity LOW)
-      // Ini menjaga kuota Free Tier Supabase agar tidak cepat habis.
-      if (scored.score === 0 && scored.severity === "LOW") {
+      // STRICT FILTERING FOR SUPABASE FREE TIER:
+      // Hanya simpan ke DB jika severity HIGH/MEDIUM atau score >= 5.
+      // Berita umum / noise dengan match kata kecil (REL 1-2 / LOW) otomatis di-skip.
+      if (scored.severity === "LOW" || scored.score < 5) {
         continue;
       }
 
