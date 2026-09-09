@@ -205,7 +205,7 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
     sources.map(async (source) => {
       const posts = await source.fetchLatestPosts();
       const itemsReceived = posts.length;
-      // Safe check untuk username
+      // Safe check untuk username & text
       const itemsAccepted = posts.filter((post) => 
         (post.username || "").toLowerCase().includes("ibamarief") || 
         (post.text || "").toLowerCase().includes("ibamarief")
@@ -257,6 +257,13 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
       if (await hasMonitorPostFn(post.id)) continue;
 
       const scored = scorePost(post.text);
+
+      // OPTIMASI DATABASE: Abaikan post yang tidak ada keyword/skornya 0 (Severity LOW)
+      // Ini menjaga kuota Free Tier Supabase agar tidak cepat habis.
+      if (scored.score === 0 && scored.severity === "LOW") {
+        continue;
+      }
+
       const candidate = {
         ...post,
         score: scored.score,
