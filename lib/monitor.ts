@@ -68,20 +68,23 @@ function parseSources() {
 
   // 2. Fallback Source: RSS / Google Search RSS
   if (isEnabled("MONITOR_ENABLE_RSS")) {
+    const defaultGoogleRss = `https://news.google.com/rss/search?q=${encodeURIComponent("site:x.com/ibamarief")}&hl=id&gl=ID&ceid=ID:id`;
     const configured = (process.env.MONITOR_FEED_URLS || "").trim();
-    if (configured) {
-      const urls = configured
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
 
-      for (const url of [...new Set(urls)]) {
-        try {
-          new URL(url);
-          sources.push(new RSSMonitorSource(url));
-        } catch {
-          // Ignore invalid URLs
-        }
+    const rawUrls = configured
+      ? configured.split(",").map((entry) => entry.trim()).filter(Boolean)
+      : [defaultGoogleRss];
+
+    if (!rawUrls.includes(defaultGoogleRss)) {
+      rawUrls.push(defaultGoogleRss);
+    }
+
+    for (const url of [...new Set(rawUrls)]) {
+      try {
+        new URL(url);
+        sources.push(new RSSMonitorSource(url));
+      } catch {
+        // Ignore invalid URLs
       }
     }
   }
@@ -106,7 +109,7 @@ function parseSources() {
     }
   }
 
-  // 4. Deprecated Source: Zamantika (jika suatu saat dinyalakan lagi)
+  // 4. Fallback Source: Zamantika API
   if (isEnabled("MONITOR_ENABLE_ZAMANTIKA")) {
     const zamantikaUrl = (process.env.ZAMANTIKA_PROFILE_API_URL || "https://zamantika.com/api/twitter/profile/ibamarief").trim();
     if (zamantikaUrl) {
@@ -197,11 +200,26 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
   const fetched: MonitorPost[] = [];
   let successfulSources = 0;
 
-  for (const source of sources) {
-    try {
+  // Eksekusi paralel menggunakan Promise.allSettled
+  const sourceResults = await Promise.allSettled(
+    sources.map(async (source) => {
       const posts = await source.fetchLatestPosts();
       const itemsReceived = posts.length;
-      const itemsAccepted = posts.filter((post) => post.username.toLowerCase() === "ibamarief").length;
+      // Safe check untuk username
+      const itemsAccepted = posts.filter((post) => 
+        (post.username || "").toLowerCase().includes("ibamarief") || 
+        (post.text || "").toLowerCase().includes("ibamarief")
+      ).length;
+      return { source, posts, itemsReceived, itemsAccepted };
+    })
+  );
+
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
+    const result = sourceResults[i];
+
+    if (result.status === "fulfilled") {
+      const { posts, itemsReceived, itemsAccepted } = result.value;
       fetched.push(...posts);
       successfulSources += 1;
       sourceStatus.push({
@@ -213,9 +231,9 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
         itemsAccepted,
         error: undefined
       });
-
       console.log(`[source=${source.name}] status=healthy items=${itemsReceived} accepted=${itemsAccepted}`);
-    } catch (error: any) {
+    } else {
+      const errorMsg = result.reason?.message || "Feed fetch failed";
       sourceStatus.push({
         name: source.name,
         status: "DOWN",
@@ -223,10 +241,9 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
         posts: 0,
         itemsReceived: 0,
         itemsAccepted: 0,
-        error: error?.message || "Feed fetch failed"
+        error: errorMsg
       });
-
-      console.warn(`[source=${source.name}] status=down reason=${error?.message || "Feed fetch failed"}`);
+      console.warn(`[source=${source.name}] status=down reason=${errorMsg}`);
     }
   }
 
@@ -236,32 +253,40 @@ export async function runMonitorCheck(overrides: Partial<MonitorRuntimeDeps> = {
   let pushStatus: "sent" | "skipped" | "configuration-missing" = "sent";
 
   for (const post of deduped) {
-    if (await hasMonitorPostFn(post.id)) continue;
+    try {
+      if (await hasMonitorPostFn(post.id)) continue;
 
-    const scored = scorePost(post.text);
-    const candidate = {
-      ...post,
-      score: scored.score,
-      severity: scored.severity,
-      matches: scored.matches
-    } satisfies MonitorPost;
+      const scored = scorePost(post.text);
+      const candidate = {
+        ...post,
+        score: scored.score,
+        severity: scored.severity,
+        matches: scored.matches
+      } satisfies MonitorPost;
 
-    await insertMonitorPostFn(candidate);
-    inserted.push(candidate);
+      await insertMonitorPostFn(candidate);
+      inserted.push(candidate);
 
-    if (candidate.severity === "HIGH" || candidate.severity === "MEDIUM") {
-      const title = `IBAM Monitor — ${candidate.severity}`;
-      const summary = `${scored.matches.join(", ") || "public feed"}: ${candidate.text.slice(0, 180)}`;
-      const pushResult = await sendPushFn(title, summary, candidate.url);
-      if (pushResult?.skipped) {
-        pushSkipped = true;
-        pushStatus = "configuration-missing";
+      if (candidate.severity === "HIGH" || candidate.severity === "MEDIUM") {
+        const title = `IBAM Monitor — ${candidate.severity}`;
+        const summary = `${scored.matches.join(", ") || "public feed"}: ${candidate.text.slice(0, 180)}`;
+        const pushResult = await sendPushFn(title, summary, candidate.url);
+        if (pushResult?.skipped) {
+          pushSkipped = true;
+          pushStatus = "configuration-missing";
+        }
       }
+    } catch (err: any) {
+      console.error(`[monitor] Failed to process post id=${post.id}:`, err?.message);
     }
   }
 
   const timestamp = new Date().toISOString();
-  await setMonitorStateFn("last_successful_check", timestamp);
+  try {
+    await setMonitorStateFn("last_successful_check", timestamp);
+  } catch (err: any) {
+    console.warn("[monitor] Failed to update last_successful_check:", err?.message);
+  }
 
   const summary: MonitorCheckSummary = {
     ok: successfulSources > 0,
