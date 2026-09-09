@@ -99,14 +99,16 @@ function parseSources() {
     }
   }
 
-  if (isEnabled("MONITOR_ENABLE_ZAMANTIKA")) {
+  // Active if explicitly enabled OR fallback if no other sources registered
+  const isZamantikaExplicit = isEnabled("MONITOR_ENABLE_ZAMANTIKA");
+  if (isZamantikaExplicit || sources.length === 0) {
     const zamantikaUrl = (process.env.ZAMANTIKA_PROFILE_API_URL || "https://zamantika.com/api/twitter/profile/ibamarief").trim();
     if (zamantikaUrl) {
       try {
         new URL(zamantikaUrl);
         sources.push(new ZamantikaSource());
       } catch {
-        // Ignore invalid Zamantika URL while keeping the app configuration-safe.
+        // Ignore invalid Zamantika URL
       }
     }
   }
