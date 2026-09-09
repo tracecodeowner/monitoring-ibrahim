@@ -7,15 +7,36 @@ export class ZamantikaSource implements MonitorSource {
     const rawUrl = (process.env.ZAMANTIKA_PROFILE_API_URL || "https://zamantika.com/api/twitter/profile/ibamarief").trim();
     if (!rawUrl) throw new Error("ZAMANTIKA_PROFILE_API_URL is missing");
 
+    const customCookie = process.env.ZAMANTIKA_COOKIE || "";
+    const customUserAgent = process.env.ZAMANTIKA_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     try {
+      const headers: Record<string, string> = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": "https://zamantika.com/",
+        "Origin": "https://zamantika.com",
+        "User-Agent": customUserAgent,
+        "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+      };
+
+      if (customCookie) {
+        headers["Cookie"] = customCookie;
+      }
+
       const response = await fetch(rawUrl, {
         method: "GET",
-        headers: {
-          Accept: "application/json"
-        },
+        headers,
         cache: "no-store",
         signal: controller.signal
       });
